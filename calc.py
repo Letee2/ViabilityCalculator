@@ -9,12 +9,19 @@ import random
 # -------------------------------------------------
 # FUNCIONES DE CÁLCULO
 # -------------------------------------------------
-
-def calcular_costes_desarrollo(usar_horas_reales=False, horas_reales=None):
+def calcular_costes_desarrollo(
+    usar_horas_reales=False,
+    horas_reales=None,
+    marketing_horas=15,            # Horas de marketing al mes (ajustable)
+    marketing_tarifa=25           # Coste por hora de marketing
+):
     """
     Calcula los costes de desarrollo iniciales basados en el equipo y horas.
     Permite comparar entre horas estimadas y reales, y devuelve un desglose
     mensual más detallado.
+    
+    Se añade un coste de Marketing, aplicando "marketing_horas" horas/mes
+    a una tarifa de "marketing_tarifa" €/hora.
     """
     # Costes por hora (fijos)
     costes_hora = {
@@ -43,9 +50,9 @@ def calcular_costes_desarrollo(usar_horas_reales=False, horas_reales=None):
     
     # Costes fijos mensuales (hardware, GitHub y preproducción)
     costes_fijos = {
-        "hardware": 440,        # Coste mensual derivado de la renovación de equipos
-        "github": 340.68,       # 20,04€ x 17 personas
-        "preproduccion": 20     # Entornos de preproducción
+        "hardware": 440,     # Coste mensual derivado de la renovación de equipos
+        "github": 340.68,    # 20,04€ x 17 personas
+        "preproduccion": 20  # Entornos de preproducción
     }
     
     # Calcular los costes mensuales y preparar un desglose más detallado
@@ -53,33 +60,37 @@ def calcular_costes_desarrollo(usar_horas_reales=False, horas_reales=None):
     costes_mensuales_totales = {}  # Para almacenar el total de cada mes
     
     for mes, horas in horas_mes.items():
-        # Coste personal en función de las horas y roles
+        # 1) Coste de personal en función de las horas y roles
         coste_personal = sum(
-            costes_hora[rol] * num * horas 
+            costes_hora[rol] * num * horas
             for rol, num in equipo.items()
         )
         
-        # Desglose de costes fijos
+        # 2) Desglose de costes fijos
         coste_hardware = costes_fijos["hardware"]
         coste_github = costes_fijos["github"]
         coste_preprod = costes_fijos["preproduccion"]
         
-        # Subtotal = costes de personal + costes fijos
-        subtotal = coste_personal + coste_hardware + coste_github + coste_preprod
+        # 3) Coste de marketing mensual
+        coste_marketing = marketing_horas * marketing_tarifa
         
-        # Contingencia 10% sobre subtotal
+        # 4) Subtotal = costes de personal + costes fijos + marketing
+        subtotal = coste_personal + coste_hardware + coste_github + coste_preprod + coste_marketing
+        
+        # 5) Contingencia 10% sobre subtotal
         contingencia = subtotal * 0.1
         
-        # Total del mes
+        # 6) Total del mes
         total_mes = subtotal + contingencia
         
-        # Se almacena en una lista que nos permita mostrar un dataframe
+        # 7) Guardar en desglose detallado
         desglose_detallado.append({
             "Mes": mes.capitalize(),
             "Coste Personal": coste_personal,
             "Hardware": coste_hardware,
             "GitHub": coste_github,
             "Preproducción": coste_preprod,
+            "Marketing": coste_marketing,            # Nuevo elemento en el desglose
             "Subtotal": subtotal,
             "Contingencia (10%)": contingencia,
             "Total Mes": total_mes
@@ -188,7 +199,6 @@ def calcular_costes_almacenamiento_transferencia(
     coste_transferencia_anual = transferencia_anual_gb * tarifa_transferencia_gb
     
     return coste_alm_anual, coste_transferencia_anual, almacenamiento_total_gb, transferencia_anual_gb
-
 def coste_operacion_mensual(
     mes_num,
     # Mantenimiento
@@ -203,22 +213,48 @@ def coste_operacion_mensual(
     videos_por_fisio_promedio,
     clientes_actual,
     porcentaje_consumo,
-    tipo_almacenamiento
+    tipo_almacenamiento,
+    # NUEVOS PARÁMETROS PARA MARKETING
+    marketing_horas=15,       # horas de marketing al mes (por defecto 15)
+    marketing_tarifa=25.0     # coste €/hora de marketing (por defecto 25)
 ):
-    """Calcula el coste de operación para un mes, dados los parámetros."""
-    # 1) Chatbot
+    """
+    Calcula el coste de operación para un mes, dados los parámetros.
+    Incluye costes de mantenimiento (correctivo y adaptativo), chatbot, almacenamiento,
+    transferencia y, ahora, el coste de marketing.
+
+    Args:
+        mes_num (int): Número de mes en la simulación.
+        incidencias_iniciales (int): Incidencias estimadas en mes 1.
+        decremento_incidencias (int): Cantidad en que se reducen las incidencias cada mes (hasta 1).
+        modo_mantenimiento_adaptativo (str): "prorrateado" o "trimestral".
+        chatbot_plan (str): "plan1" (425.51€/mes) o "plan2" (~74€/mes).
+        coste_apis_mensual (float): Coste de APIs prorrateado al mes.
+        fisios_actual (int): Número de fisioterapeutas en este mes.
+        videos_por_fisio_promedio (float): Media de vídeos por fisio (ponderado básico/premium).
+        clientes_actual (int): Clientes por fisio en este mes.
+        porcentaje_consumo (float): Porcentaje de los vídeos que se visualizan.
+        tipo_almacenamiento (str): 'Standard', 'Nearline', etc.
+        marketing_horas (int): Horas dedicadas a marketing en este mes (por defecto 15).
+        marketing_tarifa (float): Coste €/hora de marketing (por defecto 25).
+
+    Returns:
+        dict: con el desglose de costes mensuales, incluyendo la nueva clave "Marketing".
+    """
+
+    # 1) Coste del Chatbot
     if chatbot_plan == "plan1":
         coste_chatbot = 425.51
     else:
-        coste_chatbot = 74.0  # ~79 USD -> 74€
+        coste_chatbot = 74.0  # ~79 USD -> ~74€
 
-    # 2) Mantenimiento adaptativo
-    # 2 jornadas * 8h * 27€/h => 432€ trimestral => 1728€/año
+    # 2) Mantenimiento Adaptativo
+    # 2 jornadas x 8h x 27€/h => 432€ (trimestral) => 1728€/año => 144€/mes prorrateado
     def mantenimiento_adapt(m):
         if modo_mantenimiento_adaptativo == "prorrateado":
             return 1728 / 12.0  # 144 €/mes
         else:
-            # Solo en meses 3,6,9,12 => 432€, resto 0
+            # Solo en meses 3, 6, 9, 12 => 432€, resto 0
             if m % 3 == 0:
                 return 432
             else:
@@ -226,25 +262,28 @@ def coste_operacion_mensual(
 
     coste_adaptativo = mantenimiento_adapt(mes_num)
 
-    # 3) Mantenimiento correctivo
+    # 3) Mantenimiento Correctivo
     incidencias_mes = max(1, incidencias_iniciales - (mes_num - 1)*decremento_incidencias)
     coste_correctivo = incidencias_mes * 27
 
-    # 4) Almacenamiento y transferencia
     coste_alm_anual_1, coste_trans_anual_1, _, _ = calcular_costes_almacenamiento_transferencia(
         videos_por_fisio_promedio,
         clientes_actual,
         porcentaje_consumo,
         tipo_almacenamiento
     )
-    # multiplica por fisios_actual y divide entre 12 para tener mensual
+
+    # Multiplicamos por fisios_actual y dividimos entre 12 para coste mensual total
     coste_alm_mensual = (coste_alm_anual_1 * fisios_actual) / 12.0
     coste_trans_mensual = (coste_trans_anual_1 * fisios_actual) / 12.0
 
     # 5) Otros costes
     coste_despliegue = 60
 
-    # 6) Total
+    # 6) NUEVO: Coste de Marketing
+    coste_marketing = marketing_horas * marketing_tarifa
+
+    # 7) Suma total
     total_mes = (
         coste_chatbot +
         coste_despliegue +
@@ -252,9 +291,11 @@ def coste_operacion_mensual(
         coste_adaptativo +
         coste_apis_mensual +
         coste_alm_mensual +
-        coste_trans_mensual
+        coste_trans_mensual +
+        coste_marketing
     )
 
+    # Retornamos todo en un dict
     return {
         "Mes": mes_num,
         "Fisios": fisios_actual,
@@ -267,9 +308,9 @@ def coste_operacion_mensual(
         "APIs": coste_apis_mensual,
         "Almacenamiento (GCP)": coste_alm_mensual,
         "Transferencia (GCP)": coste_trans_mensual,
+        "Marketing": coste_marketing,           # <--- NUEVA CLAVE
         "Total Mensual": total_mes
     }
-
 def calcular_costes_operacion_simulacion(
     fisios_inicial,
     fisios_final,
